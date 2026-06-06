@@ -1,0 +1,250 @@
+# Each scenario is ingested in order, then probes are evaluated against /recall.
+# must_include: all strings must appear in context (case-insensitive)
+# must_not_include: none of these strings may appear
+# must_be_empty: context must be empty string
+
+scenarios:
+
+  # ─── 1. Basic fact + paraphrase recall ──────────────────────────────────────
+  - scenario_id: basic_location
+    user_id: u_basic
+    description: >
+      User states location and employment. Probes use paraphrase
+      to test that semantic recall (vector channel) works alongside FTS.
+    turns:
+      - session_id: s1
+        timestamp: "2025-03-10T10:00:00Z"
+        messages:
+          - role: user
+            content: "I just moved to Berlin from NYC last month. Loving it so far."
+          - role: assistant
+            content: "Welcome to Berlin! How are you settling in?"
+      - session_id: s1
+        timestamp: "2025-03-10T10:05:00Z"
+        messages:
+          - role: user
+            content: "I work as a product manager at Notion."
+          - role: assistant
+            content: "That sounds like a great role!"
+    probes:
+      - query: "Where does this user live?"
+        must_include: ["Berlin"]
+        description: "Direct location recall"
+      - query: "What city is the user in?"
+        must_include: ["Berlin"]
+        description: "Paraphrase — 'city' vs 'location'"
+      - query: "Where did the user move from?"
+        must_include: ["NYC"]
+        description: "Previous location recall"
+      - query: "What is their job?"
+        must_include: ["Notion"]
+        description: "Employment paraphrase — 'job' vs 'employment'"
+      - query: "What does this person do for work?"
+        must_include: ["product manager", "Notion"]
+        description: "Role + company paraphrase"
+
+  # ─── 2. Fact evolution — genuine update (supersession) ──────────────────────
+  - scenario_id: location_update
+    user_id: u_update
+    description: >
+      User states location in session 1, then genuinely updates it in session 2.
+      Old value must be stored as location.previous.
+      New value must be the only active location.current.
+    turns:
+      - session_id: s1
+        timestamp: "2025-01-10T09:00:00Z"
+        messages:
+          - role: user
+            content: "I live in Amsterdam right now, been here two years."
+          - role: assistant
+            content: "Amsterdam is beautiful!"
+      - session_id: s2
+        timestamp: "2025-03-01T09:00:00Z"
+        messages:
+          - role: user
+            content: "I moved to Tokyo last week, finally made the jump!"
+          - role: assistant
+            content: "Tokyo is an incredible city!"
+    probes:
+      - query: "Where does the user currently live?"
+        must_include: ["Tokyo"]
+        must_not_include: ["Amsterdam"]
+        description: "Active location is Tokyo after update"
+      - query: "Where did the user live before?"
+        must_include: ["Amsterdam"]
+        description: "Amsterdam preserved as previous location"
+
+  # ─── 3. Correction semantics — wrong fact retracted ─────────────────────────
+  - scenario_id: correction
+    user_id: u_correction
+    description: >
+      User states Berlin, then explicitly retracts it as a mistake.
+      Berlin must NOT appear in recall (not even as previous location).
+      Munich must be the only active location.
+    turns:
+      - session_id: s1
+        timestamp: "2025-03-10T10:00:00Z"
+        messages:
+          - role: user
+            content: "I just moved to Berlin from NYC last month. Loving it so far."
+          - role: assistant
+            content: "Welcome to Berlin! How are you settling in?"
+      - session_id: s2
+        timestamp: "2025-03-15T10:00:00Z"
+        messages:
+          - role: user
+            content: "Actually I moved to Munich, not Berlin. I got confused earlier."
+          - role: assistant
+            content: "Munich is lovely too!"
+    probes:
+      - query: "Where does the user live?"
+        must_include: ["Munich"]
+        must_not_include: ["Berlin"]
+        description: "After correction, Munich active, Berlin gone"
+      - query: "Where does the user currently live?"
+        must_include: ["Munich"]
+        description: "Munich is the corrected current location"
+
+  # ─── 4. Implicit fact extraction ────────────────────────────────────────────
+  - scenario_id: implicit_facts
+    user_id: u_implicit
+    description: >
+      User never directly states they have a dog or previously lived in Tokyo.
+      Extractor must infer from context.
+    turns:
+      - session_id: s1
+        timestamp: "2025-03-10T08:00:00Z"
+        messages:
+          - role: user
+            content: "I took Biscuit to the dog park this morning, she loves chasing squirrels."
+          - role: assistant
+            content: "Dogs are the best! What breed is Biscuit?"
+          - role: user
+            content: "She's a golden retriever."
+      - session_id: s1
+        timestamp: "2025-03-10T08:10:00Z"
+        messages:
+          - role: user
+            content: "Just got back from a year living in Tokyo. Now I'm in Berlin."
+          - role: assistant
+            content: "That's quite a journey — Tokyo to Berlin!"
+    probes:
+      - query: "Does the user have any pets?"
+        must_include: ["Biscuit"]
+        description: "Pet extracted from walking activity, not explicit statement"
+      - query: "What kind of dog does the user have?"
+        must_include: ["golden retriever"]
+        description: "Breed extracted from follow-up"
+      - query: "Where did the user live before Berlin?"
+        must_include: ["Tokyo"]
+        description: "Previous location extracted from 'just got back from a year in Tokyo'"
+
+  # ─── 5. Multi-hop recall ────────────────────────────────────────────────────
+  - scenario_id: multihop
+    user_id: u_multihop
+    description: >
+      Two separate memories must be connected: user has a dog named Biscuit,
+      and user lives in Berlin. Query asks about the city of the dog's owner.
+    turns:
+      - session_id: s1
+        timestamp: "2025-03-10T10:00:00Z"
+        messages:
+          - role: user
+            content: "My dog Biscuit is a golden retriever. She's 3 years old."
+          - role: assistant
+            content: "Golden retrievers are wonderful!"
+      - session_id: s1
+        timestamp: "2025-03-10T10:05:00Z"
+        messages:
+          - role: user
+            content: "I live in Berlin, moved here from NYC."
+          - role: assistant
+            content: "Berlin is a fantastic city!"
+    probes:
+      - query: "What city does the user with the dog named Biscuit live in?"
+        must_include: ["Berlin"]
+        description: "Multi-hop: pet entity -> user -> location"
+      - query: "Where does Biscuit's owner live?"
+        must_include: ["Berlin"]
+        description: "Multi-hop paraphrase"
+
+  # ─── 6. Noise resistance — cold session ─────────────────────────────────────
+  - scenario_id: noise
+    user_id: u_noise
+    description: >
+      No turns ingested for this user. All probes must return empty context.
+      Service must never hallucinate memories.
+    turns: []
+    probes:
+      - query: "Where does this user live?"
+        must_be_empty: true
+        description: "Cold user — no data, no context"
+      - query: "What is their job?"
+        must_be_empty: true
+        description: "Cold user — no employment data"
+
+  # ─── 7. Cross-session scoping ───────────────────────────────────────────────
+  - scenario_id: cross_session
+    user_id: u_alice
+    description: >
+      Facts from session 1 must be available in session 2 recall.
+      Two different users in concurrent sessions must not bleed.
+    turns:
+      - session_id: alice_s1
+        timestamp: "2025-03-10T10:00:00Z"
+        messages:
+          - role: user
+            content: "My name is Alice and I live in London."
+          - role: assistant
+            content: "Nice to meet you, Alice!"
+    probes:
+      - query: "What is the user's name?"
+        must_include: ["Alice"]
+        description: "Name persists across sessions for same user"
+      - query: "Where does Alice live?"
+        must_include: ["London"]
+        description: "Location persists across sessions"
+
+  - scenario_id: cross_session_isolation
+    user_id: u_bob
+    description: >
+      Bob's data must not contain Alice's facts.
+    turns:
+      - session_id: bob_s1
+        timestamp: "2025-03-10T10:00:00Z"
+        messages:
+          - role: user
+            content: "My name is Bob and I live in Paris."
+          - role: assistant
+            content: "Bonjour, Bob!"
+    probes:
+      - query: "Where does this user live?"
+        must_include: ["Paris"]
+        must_not_include: ["London"]
+        description: "Bob's location is Paris, not Alice's London"
+
+  # ─── 8. Opinion arc ─────────────────────────────────────────────────────────
+  - scenario_id: opinion_arc
+    user_id: u_opinion
+    description: >
+      User's opinion on TypeScript evolves across sessions.
+      Most recent opinion should be returned. History should be preserved.
+    turns:
+      - session_id: s1
+        timestamp: "2025-01-01T10:00:00Z"
+        messages:
+          - role: user
+            content: "I love TypeScript, it's made our codebase so much better."
+          - role: assistant
+            content: "TypeScript has great benefits for larger projects!"
+      - session_id: s2
+        timestamp: "2025-03-01T10:00:00Z"
+        messages:
+          - role: user
+            content: "TypeScript generics are getting really annoying honestly."
+          - role: assistant
+            content: "They can be tricky, especially with complex types."
+    probes:
+      - query: "What does the user think about TypeScript?"
+        must_include: ["annoying"]
+        description: "Most recent opinion returned"
