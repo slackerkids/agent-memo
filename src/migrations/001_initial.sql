@@ -66,18 +66,23 @@ CREATE VIRTUAL TABLE memory_vec USING vec0(
 );
 
 -- FTS5 sync triggers — automatic, no manual dual-write in Go
+-- +goose StatementBegin
 CREATE TRIGGER IF NOT EXISTS memory_ai
     AFTER INSERT ON memory BEGIN
         INSERT INTO memory_fts(rowid, slot, value, evidence)
         VALUES (new.rowid, new.slot, new.value, new.evidence);
     END;
+-- +goose StatementEnd
 
+-- +goose StatementBegin
 CREATE TRIGGER IF NOT EXISTS memory_ad
     AFTER DELETE ON memory BEGIN
         INSERT INTO memory_fts(memory_fts, rowid, slot, value, evidence)
         VALUES ('delete', old.rowid, old.slot, old.value, old.evidence);
     END;
+-- +goose StatementEnd
 
+-- +goose StatementBegin
 CREATE TRIGGER IF NOT EXISTS memory_au
     AFTER UPDATE ON memory BEGIN
         INSERT INTO memory_fts(memory_fts, rowid, slot, value, evidence)
@@ -85,6 +90,7 @@ CREATE TRIGGER IF NOT EXISTS memory_au
         INSERT INTO memory_fts(rowid, slot, value, evidence)
         VALUES (new.rowid, new.slot, new.value, new.evidence);
     END;
+-- +goose StatementEnd
 
 -- +goose Down
 DROP TRIGGER IF EXISTS memory_au;

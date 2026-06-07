@@ -22,6 +22,7 @@ COPY src/ .
 #   -s -w             — strip symbol table and DWARF, reduces binary size
 #   -trimpath         — remove local build paths from binary
 RUN CGO_ENABLED=1 GOOS=linux go build \
+    -tags sqlite_fts5 \
     -ldflags='-s -w -extldflags "-static"' \
     -trimpath \
     -o /memory-service \
